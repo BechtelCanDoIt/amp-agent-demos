@@ -1,7 +1,7 @@
 import logging
 import os
 from strands import Agent
-from strands.models.ollama import OllamaModel
+from strands.models.openai import OpenAIModel
 from dotenv import load_dotenv
 from amp_instrumentation import init_otel
 
@@ -23,25 +23,22 @@ init_otel()
 # Names default to {TEMPLATE}_URL / {TEMPLATE}_API_KEY (OPENAI_* here) and can be renamed in the AMP console.
 LLM_GATEWAY_URL = os.getenv("OPENAI_URL")
 LLM_GATEWAY_KEY = os.getenv("OPENAI_API_KEY")
+if not (LLM_GATEWAY_URL and LLM_GATEWAY_KEY):
+    # Fail fast - no silent fallback to an ungoverned endpoint
+    raise RuntimeError("OPENAI_URL / OPENAI_API_KEY not set - attach an LLM configuration to this agent in AMP")
 
-if LLM_GATEWAY_URL and LLM_GATEWAY_KEY:
-    from strands.models.openai import OpenAIModel
-
-    MODEL = os.getenv("MODEL", "gpt-4o-mini") # use env variable and if missing default the model
-    model = OpenAIModel(
-        client_args={
-            "base_url": LLM_GATEWAY_URL,
-            # Gateway auths on the API-Key header; blank out the OpenAI SDK's Bearer token
-            "api_key": "",
-            "default_headers": {"API-Key": LLM_GATEWAY_KEY, "Authorization": ""},
-        },
-        model_id=MODEL,
-        params={"temperature": 0},
-    )
-else:
-    # Local dev fallback: no AMP gateway configured, use local Ollama
-    MODEL = os.getenv("MODEL", "qwen2.5:14b-instruct") # use env variable and if missing default the model
-    model = OllamaModel(host="http://localhost:11434", model_id=MODEL, temperature=0)
+MODEL = os.getenv("MODEL", "qwen3.5:latest") # use env variable and if missing default the model
+model = OpenAIModel(
+    client_args={
+        "base_url": LLM_GATEWAY_URL,
+        # Gateway auths on the API-Key header. openai>=3 rejects an empty api_key,
+        # so pass the key here and blank the Bearer header it would otherwise send
+        "api_key": LLM_GATEWAY_KEY,
+        "default_headers": {"API-Key": LLM_GATEWAY_KEY, "Authorization": ""},
+    },
+    model_id=MODEL,
+    params={"temperature": 0},
+)
 
 # Small model (qwen3:4b): short, plain, direct instructions work best
 SYSTEM_PROMPT = (
@@ -53,7 +50,7 @@ SYSTEM_PROMPT = (
 
 my_agent = Agent(
     system_prompt=SYSTEM_PROMPT,
-    model=model,  # AMP LLM gateway, or local Ollama when running outside AMP
+    model=model,  # Routed through the AMP LLM gateway
     callback_handler=None,  # We print the reply ourselves below
 )
 
