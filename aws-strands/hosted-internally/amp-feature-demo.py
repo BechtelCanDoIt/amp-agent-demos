@@ -34,7 +34,17 @@ if not (LLM_GATEWAY_URL and LLM_GATEWAY_KEY):
     # Fail fast - no silent fallback to an ungoverned endpoint
     raise RuntimeError("OPENAI_URL / OPENAI_API_KEY not set - attach an LLM configuration to this agent in AMP")
 
-MODEL = os.getenv("MODEL", "qwen3.5:latest") # use env variable and if missing default the model
+# Model knobs come from env so swapping LLM providers in AMP is a redeploy, not a rebuild
+MODEL = os.getenv("MODEL", "gpt-4o-mini") # use env variable and if missing default the model
+params: dict[str, Any] = {}
+if os.getenv("TEMPERATURE"):
+    params["temperature"] = float(os.environ["TEMPERATURE"])
+if os.getenv("REASONING_EFFORT"):
+    # Ollama thinking models (e.g. qwen3.5) can out-think the gateway's 30s upstream timeout - set "none" there.
+    # Most OpenAI models reject this param, so leave it unset for them.
+    params["reasoning_effort"] = os.environ["REASONING_EFFORT"]
+log.info("LLM gateway=%s model=%s params=%s", LLM_GATEWAY_URL, MODEL, params)
+
 model = OpenAIModel(
     client_args={
         "base_url": LLM_GATEWAY_URL,
@@ -44,8 +54,7 @@ model = OpenAIModel(
         "default_headers": {"API-Key": LLM_GATEWAY_KEY, "Authorization": ""},
     },
     model_id=MODEL,
-    # qwen3.5 is a thinking model; open-ended prompts can out-think the gateway's 30s upstream timeout
-    params={"temperature": 0, "reasoning_effort": "none"},
+    params=params,
     # Gateway holds streamed responses open past [DONE] until a ~30s idle timeout,
     # which the SDK reports as a broken stream. The /chat contract returns one JSON blob anyway.
     stream=False,
