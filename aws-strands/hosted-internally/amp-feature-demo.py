@@ -19,8 +19,29 @@ init_otel()
 # or pass a string like model="openai/gpt-4o")
 
 #define model
-MODEL = os.getenv("MODEL", "qwen2.5:14b-instruct") # use env variable and if missing default the model
-model = OllamaModel(host="http://localhost:11434", model_id=MODEL, temperature=0)
+# AMP injects the LLM gateway URL + platform-issued key for the agent's LLM configuration.
+# Names default to {TEMPLATE}_URL / {TEMPLATE}_API_KEY (OPENAI_* here) and can be renamed in the AMP console.
+LLM_GATEWAY_URL = os.getenv("OPENAI_URL")
+LLM_GATEWAY_KEY = os.getenv("OPENAI_API_KEY")
+
+if LLM_GATEWAY_URL and LLM_GATEWAY_KEY:
+    from strands.models.openai import OpenAIModel
+
+    MODEL = os.getenv("MODEL", "gpt-4o-mini") # use env variable and if missing default the model
+    model = OpenAIModel(
+        client_args={
+            "base_url": LLM_GATEWAY_URL,
+            # Gateway auths on the API-Key header; blank out the OpenAI SDK's Bearer token
+            "api_key": "",
+            "default_headers": {"API-Key": LLM_GATEWAY_KEY, "Authorization": ""},
+        },
+        model_id=MODEL,
+        params={"temperature": 0},
+    )
+else:
+    # Local dev fallback: no AMP gateway configured, use local Ollama
+    MODEL = os.getenv("MODEL", "qwen2.5:14b-instruct") # use env variable and if missing default the model
+    model = OllamaModel(host="http://localhost:11434", model_id=MODEL, temperature=0)
 
 # Small model (qwen3:4b): short, plain, direct instructions work best
 SYSTEM_PROMPT = (
@@ -32,7 +53,7 @@ SYSTEM_PROMPT = (
 
 my_agent = Agent(
     system_prompt=SYSTEM_PROMPT,
-    model=model,  # Pointing to your local Ollama instance
+    model=model,  # AMP LLM gateway, or local Ollama when running outside AMP
     callback_handler=None,  # We print the reply ourselves below
 )
 
