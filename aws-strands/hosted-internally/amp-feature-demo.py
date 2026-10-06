@@ -15,6 +15,10 @@ from amp_instrumentation import init_otel
 log = logging.getLogger("strands-chatbot")
 
 # 0. Config comes from env vars AMP injects at runtime (no .env on AMP)
+# Strands records prompt/response text as span events by default, which AMP's trace view doesn't read.
+# Opt into latest GenAI semconv as span attributes (gen_ai.input/output.messages, gen_ai.system_instructions).
+# Read when the Strands tracer is created, so it must be set before the first Agent.
+os.environ.setdefault("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental,gen_ai_span_attributes_only")
 # Export Strands' native OTel GenAI spans to AMP (must run before Agent is created)
 init_otel()
 
