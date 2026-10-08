@@ -10,13 +10,13 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from opentelemetry import trace
 from pydantic import BaseModel
-from amp_instrumentation import init_otel
 
 log = logging.getLogger("langchain-chatbot")
 
 # 0. Config comes from env vars AMP injects at runtime (no .env on AMP)
-# Export LangChain + OpenAI spans to AMP (traceloop instruments LangChain; must run before the model is created)
-init_otel()
+# Tracing: turn on "Enable auto instrumentation" for this agent in AMP. LangChain emits no OTel spans
+# on its own; AMP's auto-instrumentation loads Traceloop, which patches LangChain + OpenAI and exports to AMP.
+# Don't also call amp_instrumentation.init_otel() here - that would wire up a second exporter.
 
 # 1. INFO logs land in the AMP agent logs view
 logging.basicConfig(level=logging.INFO)
@@ -79,7 +79,10 @@ def _get_session(session_id: str) -> tuple[list[BaseMessage], threading.Lock]:
 async def lifespan(_app: FastAPI):
     yield
     # 5. Flush buffered spans before the process exits
-    trace.get_tracer_provider().force_flush()
+    # (locally, without auto-instrumentation, the provider is a no-op proxy with no force_flush)
+    provider = trace.get_tracer_provider()
+    if hasattr(provider, "force_flush"):
+        provider.force_flush()
 
 
 # 4. AMP chat-api contract: POST /chat on port 8000, {message, session_id, context?} -> {response}
